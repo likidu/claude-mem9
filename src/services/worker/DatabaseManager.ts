@@ -15,11 +15,13 @@ import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
 import type { DBSession } from '../worker-types.js';
+import { Mem9Manager } from '../mem9/Mem9Manager.js';
 
 export class DatabaseManager {
   private sessionStore: SessionStore | null = null;
   private sessionSearch: SessionSearch | null = null;
   private chromaSync: ChromaSync | null = null;
+  private mem9Manager: Mem9Manager | null = null;
 
   /**
    * Initialize database connection (once, stays open)
@@ -36,6 +38,10 @@ export class DatabaseManager {
       this.chromaSync = new ChromaSync('claude-mem');
     } else {
       logger.info('DB', 'Chroma disabled via CLAUDE_MEM_CHROMA_ENABLED=false, using SQLite-only search');
+    }
+
+    if (Mem9Manager.isEnabled()) {
+      this.mem9Manager = new Mem9Manager();
     }
 
     logger.info('DB', 'Database initialized');
@@ -87,6 +93,13 @@ export class DatabaseManager {
    */
   getChromaSync(): ChromaSync | null {
     return this.chromaSync;
+  }
+
+  /**
+   * Get Mem9Manager instance (returns null if MEM9_URL is not set)
+   */
+  getMem9Manager(): Mem9Manager | null {
+    return this.mem9Manager;
   }
 
   // REMOVED: cleanupOrphanedSessions - violates "EVERYTHING SHOULD SAVE ALWAYS"
