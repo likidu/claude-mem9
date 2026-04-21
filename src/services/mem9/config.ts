@@ -1,6 +1,6 @@
 export interface Mem9Config {
   url: string;
-  apiKey: string | undefined;
+  apiKey?: string;
 }
 
 export function isMem9Enabled(): boolean {
@@ -14,8 +14,11 @@ export function loadMem9Config(): Mem9Config {
       "MEM9_URL is not set. Set MEM9_URL=http://your-mem9-server to enable the mem9 backend."
     );
   }
-  return {
+  const config: Mem9Config = {
     url: raw.replace(/\/+$/, ""),
-    apiKey: process.env.MEM9_API_KEY || undefined,
   };
+  if (process.env.MEM9_API_KEY) {
+    config.apiKey = process.env.MEM9_API_KEY;
+  }
+  return config;
 }
