@@ -1375,6 +1375,12 @@ async function main() {
       process.exit(0);
     }
 
+    case 'migrate-to-mem9': {
+      const { runMigrateToMem9 } = await import('../cli/migrate-to-mem9-command.js');
+      await runMigrateToMem9();
+      process.exit(0);
+    }
+
     case '--daemon':
     default: {
       // GUARD 1: Refuse to start if another worker is already alive.
