@@ -152,28 +152,30 @@ export async function processAgentResponse(
     // mem9 path: store each observation and summary via Mem9Store
     const createdAtEpoch = originalTimestamp ?? Date.now();
     try {
-      for (const obs of labeledObservations) {
-        await mem9.store.storeObservation({
-          id: crypto.randomUUID(),
-          memory_session_id: session.memorySessionId,
-          project: session.project,
-          type: obs.type,
-          title: obs.title ?? '',
-          subtitle: obs.subtitle ?? '',
-          narrative: obs.narrative ?? '',
-          facts: obs.facts ?? [],
-          concepts: obs.concepts ?? [],
-          files_read: obs.files_read ?? [],
-          files_modified: obs.files_modified ?? [],
-          created_at_epoch: createdAtEpoch,
-          prompt_number: session.lastPromptNumber ?? null,
-          discovery_tokens: discoveryTokens,
-          content_hash: null,
-          merged_into_project: null,
-          agent_type: obs.agent_type ?? null,
-          agent_id: obs.agent_id ?? null,
-        });
-      }
+      await Promise.all(
+        labeledObservations.map((obs) =>
+          mem9.store.storeObservation({
+            id: crypto.randomUUID(),
+            memory_session_id: session.memorySessionId,
+            project: session.project,
+            type: obs.type,
+            title: obs.title ?? '',
+            subtitle: obs.subtitle ?? '',
+            narrative: obs.narrative ?? '',
+            facts: obs.facts ?? [],
+            concepts: obs.concepts ?? [],
+            files_read: obs.files_read ?? [],
+            files_modified: obs.files_modified ?? [],
+            created_at_epoch: createdAtEpoch,
+            prompt_number: session.lastPromptNumber ?? null,
+            discovery_tokens: discoveryTokens,
+            content_hash: null,
+            merged_into_project: null,
+            agent_type: obs.agent_type ?? null,
+            agent_id: obs.agent_id ?? null,
+          })
+        )
+      );
       if (summaryForStore) {
         await mem9.store.storeSummary({
           id: crypto.randomUUID(),
@@ -198,7 +200,11 @@ export async function processAgentResponse(
       session.pendingAgentType = null;
     }
     // Provide a synthetic result for downstream logging/broadcast (no SQLite IDs in mem9 path)
-    result = { observationIds: [], summaryId: null, createdAtEpoch };
+    result = {
+      observationIds: [],
+      summaryId: summaryForStore ? "mem9" : null,
+      createdAtEpoch,
+    };
   } else {
     try {
       result = sessionStore.storeObservations(
