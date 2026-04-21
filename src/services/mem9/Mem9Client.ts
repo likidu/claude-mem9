@@ -68,4 +68,50 @@ export class Mem9Client {
     const res = await this.request(`/memories/${encodeURIComponent(id)}`);
     return (await this.handle(res, id)) as Mem9Memory;
   }
+
+  async update(id: string, patch: Partial<StoreInput>): Promise<void> {
+    const res = await this.request(`/memories/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    });
+    await this.handle(res, `PUT ${id}`);
+  }
+
+  async delete(id: string): Promise<void> {
+    const res = await this.request(`/memories/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (res.status === 204) return;
+    await this.handle(res, `DELETE ${id}`);
+  }
+
+  async search(input: SearchInput): Promise<Mem9Memory[]> {
+    const params = new URLSearchParams();
+    if (input.query) params.set("query", input.query);
+    if (input.tags?.length) params.set("tags", input.tags.join(","));
+    if (input.source) params.set("source", input.source);
+    if (input.state) params.set("state", input.state);
+    if (input.memoryType) params.set("memory_type", input.memoryType);
+    if (input.agentId) params.set("agent_id", input.agentId);
+    if (input.sessionId) params.set("session_id", input.sessionId);
+    if (input.limit !== undefined) params.set("limit", String(input.limit));
+    if (input.offset !== undefined) params.set("offset", String(input.offset));
+    if (input.minScore !== undefined) params.set("min_score", String(input.minScore));
+    const res = await this.request(`/memories?${params.toString()}`);
+    const json = (await this.handle(res, "GET /memories")) as { results: Mem9Memory[] };
+    return json.results ?? [];
+  }
+}
+
+export interface SearchInput {
+  query?: string;
+  tags?: string[];
+  source?: string;
+  state?: string;
+  memoryType?: string;
+  agentId?: string;
+  sessionId?: string;
+  limit?: number;
+  offset?: number;
+  minScore?: number;
 }

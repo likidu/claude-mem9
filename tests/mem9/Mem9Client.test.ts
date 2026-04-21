@@ -75,3 +75,54 @@ describe("Mem9Client.get", () => {
     await expect(client.get("missing")).rejects.toBeInstanceOf(Mem9NotFound);
   });
 });
+
+describe("Mem9Client.update", () => {
+  test("PUTs /memories/:id with patch body", async () => {
+    let capturedUrl = "";
+    let capturedBody = "";
+    mockFetch(async (url, init) => {
+      capturedUrl = url;
+      capturedBody = init!.body as string;
+      return new Response(JSON.stringify({ id: "m1" }), { status: 200 });
+    });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    await client.update("m1", { metadata: { status: "done" } });
+    expect(capturedUrl).toBe("http://mem9/memories/m1");
+    expect(JSON.parse(capturedBody)).toEqual({ metadata: { status: "done" } });
+  });
+});
+
+describe("Mem9Client.delete", () => {
+  test("DELETEs /memories/:id", async () => {
+    let capturedMethod = "";
+    mockFetch(async (_, init) => {
+      capturedMethod = init!.method!;
+      return new Response("", { status: 204 });
+    });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    await client.delete("m1");
+    expect(capturedMethod).toBe("DELETE");
+  });
+});
+
+describe("Mem9Client.search", () => {
+  test("builds GET /memories with query params and returns results", async () => {
+    let capturedUrl = "";
+    mockFetch(async (url) => {
+      capturedUrl = url;
+      return new Response(JSON.stringify({
+        results: [{ id: "m1", content: "x", tags: [], metadata: {} }],
+      }), { status: 200 });
+    });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    const out = await client.search({
+      query: "hello",
+      tags: ["kind:observation", "project:demo"],
+      limit: 10,
+    });
+    expect(out.length).toBe(1);
+    expect(capturedUrl).toContain("query=hello");
+    expect(capturedUrl).toContain("tags=kind%3Aobservation%2Cproject%3Ademo");
+    expect(capturedUrl).toContain("limit=10");
+  });
+});
