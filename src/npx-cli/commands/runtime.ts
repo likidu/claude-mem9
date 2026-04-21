@@ -140,6 +140,13 @@ export function runAdoptCommand(extraArgs: string[] = []): void {
 }
 
 /**
+ * Migrate existing SQLite DB to mem9 via Bun (required for bun:sqlite).
+ */
+export function runMigrateToMem9Command(): void {
+  spawnBunWorkerCommand('migrate-to-mem9');
+}
+
+/**
  * Search the worker API at `GET /api/search?query=<query>`.
  */
 export async function runSearchCommand(queryParts: string[]): Promise<void> {

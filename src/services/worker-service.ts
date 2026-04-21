@@ -76,6 +76,7 @@ import {
 
 // Service layer imports
 import { DatabaseManager } from './worker/DatabaseManager.js';
+import { Mem9Manager } from './mem9/Mem9Manager.js';
 import { SessionManager } from './worker/SessionManager.js';
 import { SSEBroadcaster } from './worker/SSEBroadcaster.js';
 import { SDKAgent } from './worker/SDKAgent.js';
@@ -418,6 +419,20 @@ export class WorkerService {
 
       await this.dbManager.initialize();
 
+      // Boot-time mem9 healthcheck: fail fast if MEM9_URL is set but unreachable
+      if (Mem9Manager.isEnabled()) {
+        const mgr = this.dbManager.getMem9Manager();
+        if (mgr) {
+          try {
+            await mgr.healthcheck();
+            logger.info('SYSTEM', `mem9 healthy at ${mgr.config.url}`);
+          } catch (err) {
+            logger.error('SYSTEM', `mem9 healthcheck failed: ${err}`);
+            process.exit(1);
+          }
+        }
+      }
+
       // Reset any messages that were processing when worker died
       const { PendingMessageStore } = await import('./sqlite/PendingMessageStore.js');
       const pendingStore = new PendingMessageStore(this.dbManager.getSessionStore().db, 3);
@@ -434,7 +449,8 @@ export class WorkerService {
         this.dbManager.getSessionStore(),
         this.dbManager.getChromaSync(),
         formattingService,
-        timelineService
+        timelineService,
+        this.dbManager
       );
       this.searchRoutes = new SearchRoutes(searchManager);
       this.server.registerRoutes(this.searchRoutes);
@@ -1356,6 +1372,12 @@ async function main() {
       for (const err of result.errors) {
         console.log(`  ! ${err.worktree}: ${err.error}`);
       }
+      process.exit(0);
+    }
+
+    case 'migrate-to-mem9': {
+      const { runMigrateToMem9 } = await import('../cli/migrate-to-mem9-command.js');
+      await runMigrateToMem9();
       process.exit(0);
     }
 

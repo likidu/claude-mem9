@@ -54,6 +54,7 @@ ${pc.bold('Runtime Commands')} (requires Bun, delegates to installed plugin):
   ${pc.cyan('npx claude-mem search <query>')}       Search observations
   ${pc.cyan('npx claude-mem adopt [--dry-run] [--branch <name>]')}    Stamp merged worktrees into parent project
   ${pc.cyan('npx claude-mem transcript watch')}     Start transcript watcher
+  ${pc.cyan('npx claude-mem migrate-to-mem9')}      Migrate SQLite DB to mem9 (requires MEM9_URL)
 
 ${pc.bold('IDE Identifiers')}:
   claude-code, cursor, gemini-cli, opencode, openclaw,
@@ -150,6 +151,13 @@ async function main(): Promise<void> {
     case 'adopt': {
       const { runAdoptCommand } = await import('./commands/runtime.js');
       runAdoptCommand(args.slice(1));
+      break;
+    }
+
+    // -- Migrate to mem9 --------------------------------------------------
+    case 'migrate-to-mem9': {
+      const { runMigrateToMem9Command } = await import('./commands/runtime.js');
+      runMigrateToMem9Command();
       break;
     }
 

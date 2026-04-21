@@ -1,0 +1,7 @@
+{
+  "queries": [
+    { "query": "bug fix", "project": "demo" },
+    { "query": "migration", "project": "demo" },
+    { "query": "test coverage", "project": "demo" }
+  ]
+}
