@@ -47,24 +47,44 @@ Intentional alignment with the [mem9](https://github.com/mem9-ai/mem9) project. 
 
 Every claude-mem record becomes a mem9 "memory" with typed metadata. All entity types share one mem9 namespace distinguished by a `kind` metadata field.
 
-### Shared metadata schema
+### mem9 filter surface (verified against source)
+
+mem9's `memory_search` accepts only a flat, fixed-field filter (`server/internal/domain/types.go:67-78`). No `AND/OR`, no range predicates, no metadata-JSON predicates. The only filterable fields are:
+
+| mem9 field | Shape | Usage in claude-mem |
+|---|---|---|
+| `Query` | FTS string | Free-text search term |
+| `Tags` | OR list | `parent:<id>`, `project:<name>`, any multi-value filter we need |
+| `Source` | equality | Origin marker (e.g., `claude-mem`) |
+| `State` | equality | `active` / `archived` (mem9 lifecycle) |
+| `MemoryType` | equality | `kind` (observation, summary, …) |
+| `AgentID` | equality | Agent identifier |
+| `SessionID` | equality | `memory_session_id` |
+| `Limit`/`Offset`/`MinScore` | pagination/score gate | Standard |
+
+Everything else travels in the memory's `metadata` JSON blob and is **client-side post-filtered** after fetch.
+
+### Server-side filterable metadata
+
+- `kind` → `MemoryType`
+- `memory_session_id` → `SessionID`
+- `agent_id` → `AgentID`
+- `project` → `Source` (one project per Source value; project string sanitized as today)
+- `parent_id` → `Tags` as `parent:<parent_memory_id>`
+
+### Client-side post-filter metadata (stored in `metadata` JSON, filtered after fetch)
 
 ```
 {
-  kind: "observation" | "summary" | "user_prompt" | "session" | "feedback" | "pending_message",
-  project: string,
-  memory_session_id: string | null,
   content_session_id: string | null,
   prompt_number: number | null,
   created_at_epoch: number,
   content_hash: string | null,
   merged_into_project: string | null,
-  parent_id: string | null,                 // links field-memory to its parent observation
   observation_type: string | null,          // kind=observation
   agent_type: string | null,                // kind=observation
-  agent_id: string | null,                  // kind=observation
   rating: number | null,                    // kind=feedback
-  tags: string[] | null,                    // kind=feedback
+  feedback_tags: string[] | null,           // kind=feedback (renamed to avoid clashing with mem9 Tags)
   target_observation_id: string | null,     // kind=feedback
   session_status: string | null,            // kind=session
   worker_port: number | null,               // kind=session
@@ -73,6 +93,8 @@ Every claude-mem record becomes a mem9 "memory" with typed metadata. All entity 
   last_check_epoch: number | null,          // kind=pending_message
 }
 ```
+
+**Implication:** queries like "observations in project X within time range Y" must over-fetch server-side (large `Limit`) and apply the time predicate in the client. Reads become a two-pass pattern documented in Data Flow.
 
 ### Entity mapping
 
@@ -150,11 +172,13 @@ Added: none — Bun's `fetch` is sufficient; we write a thin REST client rather 
 ```
 Hook → worker HTTP → ResponseProcessor.parse()
   → Mem9Store.storeObservation(obs)
-      → mapping.observationToMemories(obs)          // parent + N field memories
-      → Mem9Client.store(parent)                    // returns parent_id
-      → Mem9Client.store(field[0..N], {parent_id})  // batched if supported
+      → mapping.observationToMemories(obs)                    // parent + N field memories
+      → Mem9Client.store(parent)                              // 1 RTT, returns parent_id
+      → Promise.all(field[0..N].map(f => Mem9Client.store(f, {tags: [`parent:${parent_id}`]})))
   → returns memory id to caller
 ```
+
+**No bulk endpoint.** Source inspection confirmed mem9's `POST /memories/bulk` handler exists but is not mounted (`server/internal/handler/handler.go:140-203`; dead code at `memory.go:504`). The only multi-memory request shape is `POST /memories` with a `messages: []` array, which triggers the LLM ingest/extract pipeline — not raw insert. Until upstream wires the bulk route, we fan out field-memory writes via `Promise.all`: 1 sequential RTT for the parent, then N parallel RTTs for fields. File upstream issue asking for the bulk route to be mounted.
 
 **Atomicity:** field-store failure rolls back parent via `memory_delete`. No fire-and-forget.
 
@@ -163,11 +187,15 @@ Hook → worker HTTP → ResponseProcessor.parse()
 ```
 GET /api/search?q=… → SearchRoutes → SearchManager.search()
   → Mem9Search.hybridSearch(q, {project, kind='observation', …filters})
-      → Mem9Client.search(q, metadata_filter)
+      → split filters into server-side (MemoryType/SessionID/AgentID/Source/Tags) vs client-side
+      → Mem9Client.search(q, serverFilters, limit: overfetch)
+      → client-side post-filter (time range, merged_into_project, numeric predicates, …)
       → dedupe by parent_id
       → Mem9Client.get(parent_ids[]) for full records
   → response shape unchanged from today
 ```
+
+**Two-pass pattern.** Because mem9's filter surface is flat equality on a fixed struct, queries with range predicates (time windows, numeric comparisons) or metadata-JSON predicates must over-fetch server-side and filter client-side. Over-fetch multiplier starts at 3× requested `limit` and is tuned against the parity test set. If a query's post-filter keeps < 20% of candidates, log a warning so we can consider moving that predicate into `Tags` encoding.
 
 ### Session lifecycle
 
@@ -239,9 +267,10 @@ Require `MEM9_URL`; skip cleanly when absent. CI runs one job with mem9, one wit
 
 ### Performance baselines
 
-- Observation write latency: budget ≤ 200ms P50.
-- Search latency on 10k-observation corpus: within 2× today's Chroma times.
+- Observation write latency: budget ≤ **500ms P50** (revised upward from 200ms after confirming no bulk endpoint — writes are 1 sequential RTT for parent plus N parallel RTTs for field-memories; on a typical observation with ~5 fields and 50ms RTT this lands around 100ms + 50ms = 150ms, leaving headroom).
+- Search latency on 10k-observation corpus: within **3×** today's Chroma times (revised from 2× to account for over-fetch + client-side post-filter).
 - Pending-message poll: 0 network on hot path (cache hit).
+- Over-fetch efficiency: median post-filter selectivity ≥ 50% on the parity golden-query set.
 
 ### Out of v1 testing
 
@@ -252,7 +281,7 @@ Require `MEM9_URL`; skip cleanly when absent. CI runs one job with mem9, one wit
 ## Risks & Mitigations
 
 1. **mem9 API instability (highest).** No tagged releases. *Mitigation:* pin to a commit SHA; write client against a captured contract; integration tests run against the pinned version.
-2. **Per-write latency regression.** Network RTT vs SQLite's ~1ms. *Mitigation:* batch field-memory writes if mem9 supports bulk `store`; otherwise parallelize client-side and file upstream ask.
+2. **Per-write latency regression.** Network RTT vs SQLite's ~1ms, compounded by the N+1-writes-per-observation pattern with no bulk endpoint available. *Mitigation:* parallelize field-memory writes via `Promise.all`; file an upstream ask to mount the existing (dead) `bulkCreateMemories` handler at `server/internal/handler/memory.go:504`; if upstream declines, evaluate a short-lived fork or move observations to a single mem9 memory with field-level content concatenated (would lose field-granularity in search).
 3. **No offline mode.** *Mitigation:* accept in v1; document; v2 adds write-ahead log.
 4. **Privacy surface change.** `<private>` stripping at hook layer unchanged, but untagged content now leaves the machine. *Mitigation:* docs + README updates; keep `<private>` path audited.
 5. **Pending-message semantics.** Queue-ish state in a memory store. *Mitigation:* in-process cache; single-worker-per-project invariant.
@@ -270,14 +299,23 @@ Phase 1 is the only stage where a hybrid (dual-backend) mode exists — a migrat
 
 **Phase 1 is the primary target for the implementation plan.** Phase 2 (flag flip) and Phase 3 (code removal) are follow-up plans, each with their own spec or plan at the appropriate time.
 
+## Verified Answers from mem9 Source
+
+Investigated against the live mem9 repo. Evidence cited inline.
+
+- **Bulk `memory_store`? No.** The router at `server/internal/handler/handler.go:140-203` mounts single-memory routes only. `bulkCreateMemories` exists at `server/internal/handler/memory.go:504` and `MemoryService.BulkCreate` at `server/internal/service/memory.go:863` (with `maxBulkSize=100`), but the route is never wired. The CLI and `docs/DESIGN.md:501` reference `POST /memories/bulk` — but the server does not route it. Action: we parallelize client-side via `Promise.all`; file upstream issue asking for the route to be mounted.
+
+- **Filter expression language? No — flat equality on a fixed struct plus one FTS string.** `domain.MemoryFilter` at `server/internal/domain/types.go:67-78` defines `Query, Tags (OR), Source, State, MemoryType, AgentID, SessionID, Limit, Offset, MinScore`. No `AND/OR/NOT`, no range predicates, no metadata-JSON predicates. A "project=X AND created_at BETWEEN a AND b AND kind IN (…)" query is not expressible server-side. Spec reflects this via the two-pass read path (see Data Flow).
+
+- **Native `parent_id`? No.** Schemas `server/schema.sql:27-56`, `server/schema_pg.sql:29-50`, `schema_db9.sql` define `memories(id, content, source, tags, metadata, embedding, memory_type, agent_id, session_id, state, version, updated_by, created_at, updated_at, superseded_by)`. Only cross-row link is `superseded_by` (linear revision chain). No `parent_id`, no `thread_id`, no relations table. Parent/child is entirely client-side via `metadata` JSON or `tags`. Spec encodes parent as `tags: [\`parent:<id>\`]` so it becomes server-side filterable.
+
 ## Open Questions
 
-Documented, not blockers:
+Remaining items for Phase 1 to verify:
 
-- Does mem9 support bulk `memory_store`? If not, upstream ask.
-- Does mem9 expose a filter expression language or only metadata equality? Affects query composition for "project X within time range Y."
-- Is `parent_id` native or just metadata? Assumed metadata-only.
-- License compatibility: mem9 Apache-2.0 is compatible with claude-mem's license (verify during Phase 1).
+- License compatibility: mem9 Apache-2.0 is compatible with claude-mem's license (verify the claude-mem LICENSE during Phase 1).
+- Source/project semantics: mem9's `Source` field is free-form equality; confirm it's safe to use as the primary project partition (vs multi-tenant isolation).
+- State lifecycle: mem9's `State` field has semantics (`active`/`archived`) we need to align with claude-mem's `merged_into_project` concept.
 
 ## Success Criteria
 
