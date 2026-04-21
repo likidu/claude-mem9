@@ -46,11 +46,12 @@ describe("Mem9Store.storeObservation", () => {
     expect(id).toBe("parent-id");
     // 1 parent + 3 fields (narrative + 2 facts)
     expect(calls.store.length).toBe(4);
-    // first call is parent
+    // first call is parent; carries self:<obs.id> tag for correlation
     expect(calls.store[0].memory_type).toBe("observation");
-    // subsequent calls carry parent tag
+    expect(calls.store[0].tags).toContain(`self:${OBS.id}`);
+    // field memories carry parent:<obs.id> tag (client-generated UUID, not server id)
     for (const c of calls.store.slice(1)) {
-      expect(c.tags.some((t) => t.startsWith("parent:"))).toBe(true);
+      expect(c.tags).toContain(`parent:${OBS.id}`);
     }
   });
 

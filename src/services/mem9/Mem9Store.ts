@@ -11,19 +11,25 @@ export class Mem9Store {
 
   async storeObservation(obs: ObservationEntity): Promise<string> {
     const { parent, fields } = observationToMemories(obs);
-    const parentId = await this.client.store(parent);
+    // Tag parent with a client-generated correlation key. Public mem9 (api.mem9.ai)
+    // returns {status: accepted} without the memory ID, so we can't use the
+    // server-assigned id for the parent→field relationship. Use the client UUID
+    // that already appears in field tags (parent:${obs.id}) and mirror it on the
+    // parent as self:${obs.id}. Query-time dedup joins on this tag.
+    const parentWithSelfTag = {
+      ...parent,
+      tags: [...parent.tags, `self:${obs.id}`],
+    };
+    const parentId = await this.client.store(parentWithSelfTag);
     try {
-      // rewrite field parent tags with the actual returned id
-      const fieldsWithParent = fields.map((f) => ({
-        ...f,
-        tags: f.tags.map((t) => t.startsWith("parent:") ? `parent:${parentId}` : t),
-        metadata: { ...f.metadata, parent_id: parentId },
-      }));
-      await Promise.all(fieldsWithParent.map((f) => this.client.store(f)));
-      return parentId;
+      // Fields already carry the correct parent:${obs.id} tag from mapping.ts —
+      // don't rewrite with the server id because we may not have one.
+      await Promise.all(fields.map((f) => this.client.store(f)));
+      return parentId || obs.id;
     } catch (err) {
-      // rollback parent
-      await this.client.delete(parentId).catch(() => {});
+      // Best-effort rollback. If parentId is falsy (api.mem9.ai async path),
+      // we can't reach the parent — leave orphans for a future GC pass.
+      if (parentId) await this.client.delete(parentId).catch(() => {});
       throw err;
     }
   }

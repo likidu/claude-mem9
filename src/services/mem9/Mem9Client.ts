@@ -98,8 +98,8 @@ export class Mem9Client {
     if (input.offset !== undefined) params.set("offset", String(input.offset));
     if (input.minScore !== undefined) params.set("min_score", String(input.minScore));
     const res = await this.request(`/memories?${params.toString()}`);
-    const json = (await this.handle(res, "GET /memories")) as { results: Mem9Memory[] };
-    return json.results ?? [];
+    const json = (await this.handle(res, "GET /memories")) as { memories?: Mem9Memory[]; results?: Mem9Memory[] };
+    return json.memories ?? json.results ?? [];
   }
 }
 

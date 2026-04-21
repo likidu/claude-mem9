@@ -111,7 +111,7 @@ describe("Mem9Client.search", () => {
     mockFetch(async (url) => {
       capturedUrl = url;
       return new Response(JSON.stringify({
-        results: [{ id: "m1", content: "x", tags: [], metadata: {} }],
+        memories: [{ id: "m1", content: "x", tags: [], metadata: {} }],
       }), { status: 200 });
     });
     const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
