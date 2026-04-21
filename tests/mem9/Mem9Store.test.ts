@@ -77,3 +77,46 @@ describe("Mem9Store.storeObservation", () => {
     expect(seq.calls.deletes).toEqual(["mem-1"]); // parent rolled back
   });
 });
+
+describe("Mem9Store.updateSession", () => {
+  test("sends only known field patches through metadata", async () => {
+    const calls: { id: string; patch: any }[] = [];
+    const client = {
+      async update(id: string, patch: any) {
+        calls.push({ id, patch });
+      },
+    } as unknown as Mem9Client;
+    const store = new Mem9Store(client);
+
+    await store.updateSession("sess-1", {
+      status: "completed",
+      completed_at_epoch: 999,
+      prompt_counter: 7,
+      // unknown fields — should be dropped silently
+      project: "ignored",
+      worker_port: 1234,
+    } as any);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].id).toBe("sess-1");
+    expect(calls[0].patch).toEqual({
+      metadata: {
+        status: "completed",
+        completed_at_epoch: 999,
+        prompt_counter: 7,
+      },
+    });
+  });
+
+  test("undefined fields are not emitted in the patch", async () => {
+    const calls: { patch: any }[] = [];
+    const client = {
+      async update(_: string, patch: any) { calls.push({ patch }); },
+    } as unknown as Mem9Client;
+    const store = new Mem9Store(client);
+
+    await store.updateSession("sess-2", { status: "completed" });
+
+    expect(calls[0].patch).toEqual({ metadata: { status: "completed" } });
+  });
+});
