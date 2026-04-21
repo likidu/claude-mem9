@@ -76,6 +76,7 @@ import {
 
 // Service layer imports
 import { DatabaseManager } from './worker/DatabaseManager.js';
+import { Mem9Manager } from './mem9/Mem9Manager.js';
 import { SessionManager } from './worker/SessionManager.js';
 import { SSEBroadcaster } from './worker/SSEBroadcaster.js';
 import { SDKAgent } from './worker/SDKAgent.js';
@@ -417,6 +418,20 @@ export class WorkerService {
       logger.info('SYSTEM', `Mode loaded: ${modeId}`);
 
       await this.dbManager.initialize();
+
+      // Boot-time mem9 healthcheck: fail fast if MEM9_URL is set but unreachable
+      if (Mem9Manager.isEnabled()) {
+        const mgr = this.dbManager.getMem9Manager();
+        if (mgr) {
+          try {
+            await mgr.healthcheck();
+            logger.info('SYSTEM', `mem9 healthy at ${mgr.config.url}`);
+          } catch (err) {
+            logger.error('SYSTEM', `mem9 healthcheck failed: ${err}`);
+            process.exit(1);
+          }
+        }
+      }
 
       // Reset any messages that were processing when worker died
       const { PendingMessageStore } = await import('./sqlite/PendingMessageStore.js');
