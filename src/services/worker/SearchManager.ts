@@ -24,6 +24,8 @@ import { logger } from '../../utils/logger.js';
 import { getProjectContext } from '../../utils/project-name.js';
 import { formatDate, formatTime, formatDateTime, extractFirstFile, groupByDate, estimateTokens } from '../../shared/timeline-formatting.js';
 import { ModeManager } from '../domain/ModeManager.js';
+import type { DatabaseManager } from './DatabaseManager.js';
+import type { ObservationEntity } from '../mem9/mapping.js';
 
 import {
   SearchOrchestrator,
@@ -41,7 +43,8 @@ export class SearchManager {
     private sessionStore: SessionStore,
     private chromaSync: ChromaSync | null,
     private formatter: FormattingService,
-    private timelineService: TimelineService
+    private timelineService: TimelineService,
+    private dbManager?: DatabaseManager
   ) {
     // Initialize the new modular search infrastructure
     this.orchestrator = new SearchOrchestrator(
@@ -156,9 +159,107 @@ export class SearchManager {
   }
 
   /**
+   * Translate an ObservationEntity (mem9) to the ObservationSearchResult shape
+   * expected by the legacy search response formatters.
+   */
+  private entityToSearchResult(obs: ObservationEntity): ObservationSearchResult {
+    return {
+      id: obs.id as unknown as number, // string UUID; formatter renders `#${id}` — acceptable for mem9 path
+      memory_session_id: obs.memory_session_id ?? '',
+      project: obs.project,
+      text: null,
+      type: obs.type as ObservationSearchResult['type'],
+      title: obs.title || null,
+      subtitle: obs.subtitle || null,
+      facts: obs.facts.length > 0 ? JSON.stringify(obs.facts) : null,
+      narrative: obs.narrative || null,
+      concepts: obs.concepts.length > 0 ? JSON.stringify(obs.concepts) : null,
+      files_read: obs.files_read.length > 0 ? JSON.stringify(obs.files_read) : null,
+      files_modified: obs.files_modified.length > 0 ? JSON.stringify(obs.files_modified) : null,
+      prompt_number: obs.prompt_number,
+      discovery_tokens: obs.discovery_tokens ?? 0,
+      created_at: new Date(obs.created_at_epoch).toISOString(),
+      created_at_epoch: obs.created_at_epoch,
+    };
+  }
+
+  /**
    * Tool handler: search
    */
   async search(args: any): Promise<any> {
+    // mem9 feature-flag branch: if MEM9_URL is set, delegate to Mem9Search
+    const mem9 = this.dbManager?.getMem9Manager();
+    if (mem9) {
+      const normalized = this.normalizeParams(args);
+      const { query, format, ...options } = normalized;
+      const createdAfter = options.dateRange?.start !== undefined
+        ? (typeof options.dateRange.start === 'number' ? options.dateRange.start : new Date(options.dateRange.start).getTime())
+        : undefined;
+      const createdBefore = options.dateRange?.end !== undefined
+        ? (typeof options.dateRange.end === 'number' ? options.dateRange.end : new Date(options.dateRange.end).getTime())
+        : undefined;
+
+      const entities = await mem9.search.searchObservations({
+        query: query || undefined,
+        project: options.project,
+        sessionId: options.sessionId,
+        limit: options.limit,
+        createdAfter,
+        createdBefore,
+      });
+
+      const observations: ObservationSearchResult[] = entities.map(e => this.entityToSearchResult(e));
+      const totalResults = observations.length;
+
+      if (format === 'json') {
+        return { observations, sessions: [], prompts: [], totalResults, query: query || '' };
+      }
+
+      if (totalResults === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `No results found matching "${query}"`
+          }]
+        };
+      }
+
+      const cwd = process.cwd();
+      const resultsByDate = groupByDate(
+        observations.map(obs => ({ type: 'observation' as const, data: obs, epoch: obs.created_at_epoch, created_at: obs.created_at })),
+        item => item.created_at
+      );
+
+      const lines: string[] = [];
+      lines.push(`Found ${totalResults} result(s) matching "${query}" (${observations.length} obs, 0 sessions, 0 prompts)`);
+      lines.push('');
+
+      for (const [day, dayResults] of resultsByDate) {
+        lines.push(`### ${day}`);
+        lines.push('');
+        const resultsByFile = new Map<string, typeof dayResults>();
+        for (const result of dayResults) {
+          const file = extractFirstFile(result.data.files_modified, cwd, result.data.files_read);
+          if (!resultsByFile.has(file)) resultsByFile.set(file, []);
+          resultsByFile.get(file)!.push(result);
+        }
+        for (const [file, fileResults] of resultsByFile) {
+          lines.push(`**${file}**`);
+          lines.push(this.formatter.formatSearchTableHeader());
+          let lastTime = '';
+          for (const result of fileResults) {
+            const formatted = this.formatter.formatObservationSearchRow(result.data, lastTime);
+            lines.push(formatted.row);
+            lastTime = formatted.time;
+          }
+          lines.push('');
+        }
+      }
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    }
+    // else — fall through to existing SQLite+Chroma logic (unchanged)
+
     // Normalize URL-friendly params to internal format
     const normalized = this.normalizeParams(args);
     const { query, type, obs_type, concepts, files, format, ...options } = normalized;

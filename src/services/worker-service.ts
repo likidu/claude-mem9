@@ -434,7 +434,8 @@ export class WorkerService {
         this.dbManager.getSessionStore(),
         this.dbManager.getChromaSync(),
         formattingService,
-        timelineService
+        timelineService,
+        this.dbManager
       );
       this.searchRoutes = new SearchRoutes(searchManager);
       this.server.registerRoutes(this.searchRoutes);
