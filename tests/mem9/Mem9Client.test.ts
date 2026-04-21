@@ -33,7 +33,7 @@ describe("Mem9Client.store", () => {
     expect(JSON.parse(capturedBody)).toEqual({ content: "hello", tags: ["t1"], metadata: { k: "v" } });
   });
 
-  test("includes Authorization header when apiKey set", async () => {
+  test("includes X-API-Key header when apiKey set", async () => {
     let captured: HeadersInit | undefined;
     mockFetch(async (_, init) => {
       captured = init!.headers;
@@ -41,7 +41,7 @@ describe("Mem9Client.store", () => {
     });
     const client = new Mem9Client({ url: "http://mem9", apiKey: "secret" });
     await client.store({ content: "x", tags: [], metadata: {} });
-    expect((captured as Record<string, string>)["Authorization"]).toBe("Bearer secret");
+    expect((captured as Record<string, string>)["X-API-Key"]).toBe("secret");
   });
 
   test("throws Mem9AuthError on 401", async () => {
