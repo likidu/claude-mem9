@@ -62,3 +62,80 @@ describe("memoriesToObservation", () => {
     expect(obs.project).toBe(SAMPLE_OBS.project);
   });
 });
+
+import {
+  summaryToMemory, memoryToSummary,
+  promptToMemory, memoryToPrompt,
+  sessionToMemory, memoryToSession,
+  feedbackToMemory, memoryToFeedback,
+  pendingMessageToMemory, memoryToPendingMessage,
+} from "../../src/services/mem9/mapping";
+
+describe("summary mapping", () => {
+  const summary = {
+    id: "sum-1",
+    memory_session_id: "s1",
+    project: "demo",
+    request: "q",
+    investigated: "i",
+    learned: "l",
+    completed: "c",
+    next_steps: "n",
+    files_read: ["a"],
+    files_edited: ["b"],
+    notes: "notes",
+    created_at_epoch: 5,
+    prompt_number: 2,
+    discovery_tokens: 1,
+    merged_into_project: null,
+  };
+  test("round-trips", () => {
+    const mem = { id: "sum-1", ...summaryToMemory(summary) } as any;
+    expect(memoryToSummary(mem)).toEqual(summary);
+  });
+});
+
+describe("user_prompt mapping", () => {
+  const p = {
+    id: "p-1",
+    content_session_id: "c1",
+    prompt_text: "hello",
+    prompt_number: 3,
+    created_at_epoch: 10,
+  };
+  test("round-trips", () => {
+    const mem = { id: "p-1", ...promptToMemory(p) } as any;
+    expect(memoryToPrompt(mem)).toEqual(p);
+  });
+});
+
+describe("session mapping", () => {
+  const s = {
+    id: "sess-1", content_session_id: "c1", memory_session_id: "m1",
+    project: "demo", status: "active", platform_source: "claude-code",
+    started_at_epoch: 1, completed_at_epoch: null, worker_port: 37777, prompt_counter: 0,
+  };
+  test("round-trips", () => {
+    const mem = { id: "sess-1", ...sessionToMemory(s) } as any;
+    expect(memoryToSession(mem)).toEqual(s);
+  });
+});
+
+describe("feedback mapping", () => {
+  const f = { observation_id: "obs-1", rating: 5, tags: ["useful"] };
+  test("round-trips", () => {
+    const mem = { id: "fb-1", ...feedbackToMemory(f) } as any;
+    const back = memoryToFeedback(mem);
+    expect(back.observation_id).toBe("obs-1");
+    expect(back.rating).toBe(5);
+    expect(back.tags).toEqual(["useful"]);
+  });
+});
+
+describe("pending_message mapping", () => {
+  const pm = { session_id: "sess-1", pending_count: 3, last_check_epoch: 100 };
+  test("round-trips", () => {
+    const mem = { id: "pm-1", ...pendingMessageToMemory(pm) } as any;
+    expect(memoryToPendingMessage(mem)).toEqual(pm);
+  });
+});
