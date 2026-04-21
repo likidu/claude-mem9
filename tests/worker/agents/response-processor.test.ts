@@ -80,6 +80,7 @@ describe('ResponseProcessor', () => {
         syncObservation: mockChromaSyncObservation,
         syncSummary: mockChromaSyncSummary,
       }),
+      getMem9Manager: () => null,  // MEM9_URL unset → legacy path
     } as unknown as DatabaseManager;
 
     mockSessionManager = {

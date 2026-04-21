@@ -147,20 +147,74 @@ export async function processAgentResponse(
   // Expected invariant: all observations in a batch share the same agent context,
   // because ResponseProcessor runs after a single agent-response cycle.
   let result: ReturnType<typeof sessionStore.storeObservations>;
-  try {
-    result = sessionStore.storeObservations(
-      session.memorySessionId,
-      session.project,
-      labeledObservations,
-      summaryForStore,
-      session.lastPromptNumber,
-      discoveryTokens,
-      originalTimestamp ?? undefined,
-      modelId
-    );
-  } finally {
-    session.pendingAgentId = null;
-    session.pendingAgentType = null;
+  const mem9 = dbManager.getMem9Manager();
+  if (mem9) {
+    // mem9 path: store each observation and summary via Mem9Store
+    const createdAtEpoch = originalTimestamp ?? Date.now();
+    try {
+      for (const obs of labeledObservations) {
+        await mem9.store.storeObservation({
+          id: crypto.randomUUID(),
+          memory_session_id: session.memorySessionId,
+          project: session.project,
+          type: obs.type,
+          title: obs.title ?? '',
+          subtitle: obs.subtitle ?? '',
+          narrative: obs.narrative ?? '',
+          facts: obs.facts ?? [],
+          concepts: obs.concepts ?? [],
+          files_read: obs.files_read ?? [],
+          files_modified: obs.files_modified ?? [],
+          created_at_epoch: createdAtEpoch,
+          prompt_number: session.lastPromptNumber ?? null,
+          discovery_tokens: discoveryTokens,
+          content_hash: null,
+          merged_into_project: null,
+          agent_type: obs.agent_type ?? null,
+          agent_id: obs.agent_id ?? null,
+        });
+      }
+      if (summaryForStore) {
+        await mem9.store.storeSummary({
+          id: crypto.randomUUID(),
+          memory_session_id: session.memorySessionId,
+          project: session.project,
+          request: summaryForStore.request,
+          investigated: summaryForStore.investigated,
+          learned: summaryForStore.learned,
+          completed: summaryForStore.completed,
+          next_steps: summaryForStore.next_steps,
+          files_read: [],
+          files_edited: [],
+          notes: summaryForStore.notes ?? '',
+          created_at_epoch: createdAtEpoch,
+          prompt_number: session.lastPromptNumber ?? null,
+          discovery_tokens: discoveryTokens,
+          merged_into_project: null,
+        });
+      }
+    } finally {
+      session.pendingAgentId = null;
+      session.pendingAgentType = null;
+    }
+    // Provide a synthetic result for downstream logging/broadcast (no SQLite IDs in mem9 path)
+    result = { observationIds: [], summaryId: null, createdAtEpoch };
+  } else {
+    try {
+      result = sessionStore.storeObservations(
+        session.memorySessionId,
+        session.project,
+        labeledObservations,
+        summaryForStore,
+        session.lastPromptNumber,
+        discoveryTokens,
+        originalTimestamp ?? undefined,
+        modelId
+      );
+    } finally {
+      session.pendingAgentId = null;
+      session.pendingAgentType = null;
+    }
   }
 
   // Log storage result with IDs for end-to-end traceability
@@ -282,30 +336,32 @@ async function syncAndBroadcastObservations(
     const obs = observations[i];
     const chromaStart = Date.now();
 
-    // Sync to Chroma (fire-and-forget, skipped if Chroma is disabled)
-    dbManager.getChromaSync()?.syncObservation(
-      obsId,
-      session.contentSessionId,
-      session.project,
-      obs,
-      session.lastPromptNumber,
-      result.createdAtEpoch,
-      discoveryTokens
-    ).then(() => {
-      const chromaDuration = Date.now() - chromaStart;
-      logger.debug('CHROMA', 'Observation synced', {
+    // Sync to Chroma (fire-and-forget, skipped if Chroma is disabled or mem9 is active)
+    if (!dbManager.getMem9Manager()) {
+      dbManager.getChromaSync()?.syncObservation(
         obsId,
-        duration: `${chromaDuration}ms`,
-        type: obs.type,
-        title: obs.title || '(untitled)'
+        session.contentSessionId,
+        session.project,
+        obs,
+        session.lastPromptNumber,
+        result.createdAtEpoch,
+        discoveryTokens
+      ).then(() => {
+        const chromaDuration = Date.now() - chromaStart;
+        logger.debug('CHROMA', 'Observation synced', {
+          obsId,
+          duration: `${chromaDuration}ms`,
+          type: obs.type,
+          title: obs.title || '(untitled)'
+        });
+      }).catch((error) => {
+        logger.error('CHROMA', `${agentName} chroma sync failed, continuing without vector search`, {
+          obsId,
+          type: obs.type,
+          title: obs.title || '(untitled)'
+        }, error);
       });
-    }).catch((error) => {
-      logger.error('CHROMA', `${agentName} chroma sync failed, continuing without vector search`, {
-        obsId,
-        type: obs.type,
-        title: obs.title || '(untitled)'
-      }, error);
-    });
+    }
 
     // Broadcast to SSE clients (for web UI)
     // BUGFIX: Use obs.files_read and obs.files_modified (not obs.files)
@@ -376,28 +432,30 @@ async function syncAndBroadcastSummary(
 
   const chromaStart = Date.now();
 
-  // Sync to Chroma (fire-and-forget, skipped if Chroma is disabled)
-  dbManager.getChromaSync()?.syncSummary(
-    result.summaryId,
-    session.contentSessionId,
-    session.project,
-    summaryForStore,
-    session.lastPromptNumber,
-    result.createdAtEpoch,
-    discoveryTokens
-  ).then(() => {
-    const chromaDuration = Date.now() - chromaStart;
-    logger.debug('CHROMA', 'Summary synced', {
-      summaryId: result.summaryId,
-      duration: `${chromaDuration}ms`,
-      request: summaryForStore.request || '(no request)'
+  // Sync to Chroma (fire-and-forget, skipped if Chroma is disabled or mem9 is active)
+  if (!dbManager.getMem9Manager()) {
+    dbManager.getChromaSync()?.syncSummary(
+      result.summaryId,
+      session.contentSessionId,
+      session.project,
+      summaryForStore,
+      session.lastPromptNumber,
+      result.createdAtEpoch,
+      discoveryTokens
+    ).then(() => {
+      const chromaDuration = Date.now() - chromaStart;
+      logger.debug('CHROMA', 'Summary synced', {
+        summaryId: result.summaryId,
+        duration: `${chromaDuration}ms`,
+        request: summaryForStore.request || '(no request)'
+      });
+    }).catch((error) => {
+      logger.error('CHROMA', `${agentName} chroma sync failed, continuing without vector search`, {
+        summaryId: result.summaryId,
+        request: summaryForStore.request || '(no request)'
+      }, error);
     });
-  }).catch((error) => {
-    logger.error('CHROMA', `${agentName} chroma sync failed, continuing without vector search`, {
-      summaryId: result.summaryId,
-      request: summaryForStore.request || '(no request)'
-    }, error);
-  });
+  }
 
   // Broadcast to SSE clients (for web UI)
   broadcastSummary(worker, {
