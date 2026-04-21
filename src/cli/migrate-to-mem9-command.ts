@@ -7,7 +7,7 @@
  * once you trust the migration.
  */
 import { Database } from "bun:sqlite";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Mem9Manager } from "../services/mem9/Mem9Manager.js";
@@ -31,6 +31,16 @@ export async function runMigrateToMem9(): Promise<void> {
     process.exit(1);
   }
 
+  const markerPath = join(homedir(), ".claude-mem", ".migrated-to-mem9");
+  if (existsSync(markerPath)) {
+    console.error(
+      `Marker file already exists at ${markerPath}. ` +
+      `Migration has already been run. ` +
+      `Delete the marker file to re-run (WARNING: will duplicate memories in mem9).`
+    );
+    process.exit(1);
+  }
+
   const mem9 = new Mem9Manager();
   await mem9.healthcheck();
   console.log(`mem9 healthy at ${mem9.config.url}. Starting migration…`);
@@ -39,100 +49,127 @@ export async function runMigrateToMem9(): Promise<void> {
 
   // --- observations ---
   const obsRows = db.query("SELECT * FROM observations").all() as Record<string, unknown>[];
-  let n = 0;
+  let migrated = 0;
+  let skipped = 0;
   for (const row of obsRows) {
-    const obs: ObservationEntity = {
-      id: String(row.id),
-      memory_session_id: (row.memory_session_id as string) ?? null,
-      project: (row.project as string) ?? "",
-      type: (row.type as string) ?? "discovery",
-      title: (row.title as string) ?? "",
-      subtitle: (row.subtitle as string) ?? "",
-      narrative: (row.narrative as string) ?? (row.text as string) ?? "",
-      facts: parseJsonArray(row.facts as string),
-      concepts: parseJsonArray(row.concepts as string),
-      files_read: parseJsonArray(row.files_read as string),
-      files_modified: parseJsonArray(row.files_modified as string),
-      created_at_epoch: (row.created_at_epoch as number) ?? 0,
-      prompt_number: (row.prompt_number as number) ?? null,
-      discovery_tokens: (row.discovery_tokens as number) ?? null,
-      content_hash: (row.content_hash as string) ?? null,
-      merged_into_project: (row.merged_into_project as string) ?? null,
-      agent_type: (row.agent_type as string) ?? null,
-      agent_id: (row.agent_id as string) ?? null,
-    };
-    await mem9.store.storeObservation(obs);
-    n++;
+    try {
+      const obs: ObservationEntity = {
+        id: String(row.id),
+        memory_session_id: (row.memory_session_id as string) ?? null,
+        project: (row.project as string) ?? "",
+        type: (row.type as string) ?? "discovery",
+        title: (row.title as string) ?? "",
+        subtitle: (row.subtitle as string) ?? "",
+        narrative: (row.narrative as string) ?? (row.text as string) ?? "",
+        facts: parseJsonArray(row.facts as string),
+        concepts: parseJsonArray(row.concepts as string),
+        files_read: parseJsonArray(row.files_read as string),
+        files_modified: parseJsonArray(row.files_modified as string),
+        created_at_epoch: (row.created_at_epoch as number) ?? 0,
+        prompt_number: (row.prompt_number as number) ?? null,
+        discovery_tokens: (row.discovery_tokens as number) ?? null,
+        content_hash: (row.content_hash as string) ?? null,
+        merged_into_project: (row.merged_into_project as string) ?? null,
+        agent_type: (row.agent_type as string) ?? null,
+        agent_id: (row.agent_id as string) ?? null,
+      };
+      await mem9.store.storeObservation(obs);
+      migrated++;
+    } catch (err) {
+      skipped++;
+      const obsId = String(row.id);
+      console.error(`  skipped observation ${obsId}: ${err instanceof Error ? err.message : err}`);
+    }
   }
-  console.log(`observations: ${n}`);
+  console.log(`observations: ${migrated} migrated, ${skipped} skipped`);
 
   // --- session_summaries ---
   const sumRows = db.query("SELECT * FROM session_summaries").all() as Record<string, unknown>[];
-  n = 0;
+  migrated = 0;
+  skipped = 0;
   for (const row of sumRows) {
-    const summary: SummaryEntity = {
-      id: String(row.id),
-      memory_session_id: (row.memory_session_id as string) ?? "",
-      project: (row.project as string) ?? "",
-      request: (row.request as string) ?? "",
-      investigated: (row.investigated as string) ?? "",
-      learned: (row.learned as string) ?? "",
-      completed: (row.completed as string) ?? "",
-      next_steps: (row.next_steps as string) ?? "",
-      files_read: parseJsonArray(row.files_read as string),
-      files_edited: parseJsonArray(row.files_edited as string),
-      notes: (row.notes as string) ?? "",
-      created_at_epoch: (row.created_at_epoch as number) ?? 0,
-      prompt_number: (row.prompt_number as number) ?? null,
-      discovery_tokens: (row.discovery_tokens as number) ?? null,
-      merged_into_project: (row.merged_into_project as string) ?? null,
-    };
-    await mem9.store.storeSummary(summary);
-    n++;
+    try {
+      const summary: SummaryEntity = {
+        id: String(row.id),
+        memory_session_id: (row.memory_session_id as string) ?? "",
+        project: (row.project as string) ?? "",
+        request: (row.request as string) ?? "",
+        investigated: (row.investigated as string) ?? "",
+        learned: (row.learned as string) ?? "",
+        completed: (row.completed as string) ?? "",
+        next_steps: (row.next_steps as string) ?? "",
+        files_read: parseJsonArray(row.files_read as string),
+        files_edited: parseJsonArray(row.files_edited as string),
+        notes: (row.notes as string) ?? "",
+        created_at_epoch: (row.created_at_epoch as number) ?? 0,
+        prompt_number: (row.prompt_number as number) ?? null,
+        discovery_tokens: (row.discovery_tokens as number) ?? null,
+        merged_into_project: (row.merged_into_project as string) ?? null,
+      };
+      await mem9.store.storeSummary(summary);
+      migrated++;
+    } catch (err) {
+      skipped++;
+      const summaryId = String(row.id);
+      console.error(`  skipped summary ${summaryId}: ${err instanceof Error ? err.message : err}`);
+    }
   }
-  console.log(`summaries: ${n}`);
+  console.log(`summaries: ${migrated} migrated, ${skipped} skipped`);
 
   // --- user_prompts ---
   const promptRows = db.query("SELECT * FROM user_prompts").all() as Record<string, unknown>[];
-  n = 0;
+  migrated = 0;
+  skipped = 0;
   for (const row of promptRows) {
-    const prompt: PromptEntity = {
-      id: String(row.id),
-      content_session_id: (row.content_session_id as string) ?? "",
-      prompt_text: (row.prompt_text as string) ?? "",
-      prompt_number: (row.prompt_number as number) ?? 0,
-      created_at_epoch: (row.created_at_epoch as number) ?? 0,
-    };
-    await mem9.store.storePrompt(prompt);
-    n++;
+    try {
+      const prompt: PromptEntity = {
+        id: String(row.id),
+        content_session_id: (row.content_session_id as string) ?? "",
+        prompt_text: (row.prompt_text as string) ?? "",
+        prompt_number: (row.prompt_number as number) ?? 0,
+        created_at_epoch: (row.created_at_epoch as number) ?? 0,
+      };
+      await mem9.store.storePrompt(prompt);
+      migrated++;
+    } catch (err) {
+      skipped++;
+      const promptId = String(row.id);
+      console.error(`  skipped prompt ${promptId}: ${err instanceof Error ? err.message : err}`);
+    }
   }
-  console.log(`prompts: ${n}`);
+  console.log(`prompts: ${migrated} migrated, ${skipped} skipped`);
 
   // --- sdk_sessions ---
   const sessionRows = db.query("SELECT * FROM sdk_sessions").all() as Record<string, unknown>[];
-  n = 0;
+  migrated = 0;
+  skipped = 0;
   for (const row of sessionRows) {
-    const session: SessionEntity = {
-      id: String(row.id),
-      content_session_id: (row.content_session_id as string) ?? "",
-      memory_session_id: (row.memory_session_id as string) ?? "",
-      project: (row.project as string) ?? "",
-      status: (row.status as string) ?? "completed",
-      platform_source: (row.platform_source as string) ?? "claude",
-      started_at_epoch: (row.started_at_epoch as number) ?? 0,
-      completed_at_epoch: (row.completed_at_epoch as number) ?? null,
-      worker_port: (row.worker_port as number) ?? 0,
-      prompt_counter: (row.prompt_counter as number) ?? 0,
-    };
-    await mem9.store.storeSession(session);
-    n++;
+    try {
+      const session: SessionEntity = {
+        id: String(row.id),
+        content_session_id: (row.content_session_id as string) ?? "",
+        memory_session_id: (row.memory_session_id as string) ?? "",
+        project: (row.project as string) ?? "",
+        status: (row.status as string) ?? "completed",
+        platform_source: (row.platform_source as string) ?? "claude",
+        started_at_epoch: (row.started_at_epoch as number) ?? 0,
+        completed_at_epoch: (row.completed_at_epoch as number) ?? null,
+        worker_port: (row.worker_port as number) ?? 0,
+        prompt_counter: (row.prompt_counter as number) ?? 0,
+      };
+      await mem9.store.storeSession(session);
+      migrated++;
+    } catch (err) {
+      skipped++;
+      const sessionId = String(row.id);
+      console.error(`  skipped session ${sessionId}: ${err instanceof Error ? err.message : err}`);
+    }
   }
-  console.log(`sessions: ${n}`);
+  console.log(`sessions: ${migrated} migrated, ${skipped} skipped`);
 
   db.close();
 
-  const marker = join(homedir(), ".claude-mem", ".migrated-to-mem9");
-  writeFileSync(marker, `migrated_at=${new Date().toISOString()}\nmem9_url=${mem9.config.url}\n`);
-  console.log(`Migration complete. Marker written to ${marker}.`);
+  writeFileSync(markerPath, `migrated_at=${new Date().toISOString()}\nmem9_url=${mem9.config.url}\n`);
+  console.log(`Migration complete. Marker written to ${markerPath}.`);
   console.log("Original SQLite DB preserved — delete manually once you trust the migration.");
 }
