@@ -167,4 +167,26 @@ describe("Mem9Client.search", () => {
     expect(capturedUrl).toContain("tags=kind%3Aobservation%2Cproject%3Ademo");
     expect(capturedUrl).toContain("limit=10");
   });
+
+  test("search() parses {memories: [...]} for public backend", async () => {
+    const publicFixture = await import("./fixtures/public-api-responses.json");
+    mockFetch(async () =>
+      new Response(JSON.stringify(publicFixture.default.GET_memories_response), { status: 200 })
+    );
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
+    const out = await client.search({ limit: 10 });
+    expect(out.length).toBe(1);
+    expect(out[0].id).toBe("e08338ea-2274-4109-90fc-3f4c49e3072f");
+  });
+
+  test("search() parses {results: [...]} for self-hosted backend", async () => {
+    const selfHostedFixture = await import("./fixtures/self-hosted-responses.json");
+    mockFetch(async () =>
+      new Response(JSON.stringify(selfHostedFixture.default.GET_memories_response), { status: 200 })
+    );
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "self-hosted" });
+    const out = await client.search({ limit: 10 });
+    expect(out.length).toBe(1);
+    expect(out[0].id).toBe("mem-uuid-1234-5678-9abc-def012345678");
+  });
 });
