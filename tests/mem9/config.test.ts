@@ -6,6 +6,7 @@ describe("mem9 config", () => {
   beforeEach(() => {
     delete process.env.MEM9_URL;
     delete process.env.MEM9_API_KEY;
+    delete process.env.MEM9_BACKEND;
   });
   afterEach(() => {
     process.env = { ...originalEnv };
@@ -35,5 +36,22 @@ describe("mem9 config", () => {
   test("loadMem9Config strips trailing slash from URL", () => {
     process.env.MEM9_URL = "http://localhost:8080/";
     expect(loadMem9Config().url).toBe("http://localhost:8080");
+  });
+
+  test("loadMem9Config defaults backend to 'public' when MEM9_BACKEND unset", () => {
+    process.env.MEM9_URL = "http://mem9";
+    expect(loadMem9Config().backend).toBe("public");
+  });
+
+  test("loadMem9Config respects MEM9_BACKEND=self-hosted", () => {
+    process.env.MEM9_URL = "http://mem9";
+    process.env.MEM9_BACKEND = "self-hosted";
+    expect(loadMem9Config().backend).toBe("self-hosted");
+  });
+
+  test("loadMem9Config falls back to 'public' for unknown MEM9_BACKEND values", () => {
+    process.env.MEM9_URL = "http://mem9";
+    process.env.MEM9_BACKEND = "weird";
+    expect(loadMem9Config().backend).toBe("public");
   });
 });

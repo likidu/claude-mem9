@@ -1,6 +1,9 @@
+export type Mem9Backend = "public" | "self-hosted";
+
 export interface Mem9Config {
   url: string;
   apiKey?: string;
+  backend: Mem9Backend;
 }
 
 export function isMem9Enabled(): boolean {
@@ -14,8 +17,11 @@ export function loadMem9Config(): Mem9Config {
       "MEM9_URL is not set. Set MEM9_URL=http://your-mem9-server to enable the mem9 backend."
     );
   }
+  const backend: Mem9Backend =
+    process.env.MEM9_BACKEND === "self-hosted" ? "self-hosted" : "public";
   const config: Mem9Config = {
     url: raw.replace(/\/+$/, ""),
+    backend,
   };
   if (process.env.MEM9_API_KEY) {
     config.apiKey = process.env.MEM9_API_KEY;

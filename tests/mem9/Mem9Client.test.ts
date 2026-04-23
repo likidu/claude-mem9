@@ -26,7 +26,7 @@ describe("Mem9Client.store", () => {
       capturedBody = init!.body as string;
       return new Response(JSON.stringify({ id: "mem-abc" }), { status: 200 });
     });
-    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
     const id = await client.store({ content: "hello", tags: ["t1"], metadata: { k: "v" } });
     expect(id).toBe("mem-abc");
     expect(capturedUrl).toBe("http://mem9/memories");
@@ -39,20 +39,20 @@ describe("Mem9Client.store", () => {
       captured = init!.headers;
       return new Response(JSON.stringify({ id: "m" }), { status: 200 });
     });
-    const client = new Mem9Client({ url: "http://mem9", apiKey: "secret" });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: "secret", backend: "public" });
     await client.store({ content: "x", tags: [], metadata: {} });
     expect((captured as Record<string, string>)["X-API-Key"]).toBe("secret");
   });
 
   test("throws Mem9AuthError on 401", async () => {
     mockFetch(async () => new Response("", { status: 401 }));
-    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
     await expect(client.store({ content: "x", tags: [], metadata: {} })).rejects.toBeInstanceOf(Mem9AuthError);
   });
 
   test("throws Mem9Unavailable on network error", async () => {
     mockFetch(async () => { throw new TypeError("fetch failed"); });
-    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
     await expect(client.store({ content: "x", tags: [], metadata: {} })).rejects.toBeInstanceOf(Mem9Unavailable);
   });
 });
@@ -63,7 +63,7 @@ describe("Mem9Client.get", () => {
       expect(url).toBe("http://mem9/memories/mem-abc");
       return new Response(JSON.stringify({ id: "mem-abc", content: "hi", tags: [], metadata: {} }), { status: 200 });
     });
-    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
     const mem = await client.get("mem-abc");
     expect(mem.id).toBe("mem-abc");
     expect(mem.content).toBe("hi");
@@ -71,7 +71,7 @@ describe("Mem9Client.get", () => {
 
   test("throws Mem9NotFound on 404", async () => {
     mockFetch(async () => new Response("", { status: 404 }));
-    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
     await expect(client.get("missing")).rejects.toBeInstanceOf(Mem9NotFound);
   });
 });
@@ -85,7 +85,7 @@ describe("Mem9Client.update", () => {
       capturedBody = init!.body as string;
       return new Response(JSON.stringify({ id: "m1" }), { status: 200 });
     });
-    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
     await client.update("m1", { metadata: { status: "done" } });
     expect(capturedUrl).toBe("http://mem9/memories/m1");
     expect(JSON.parse(capturedBody)).toEqual({ metadata: { status: "done" } });
@@ -99,7 +99,7 @@ describe("Mem9Client.delete", () => {
       capturedMethod = init!.method!;
       return new Response("", { status: 204 });
     });
-    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
     await client.delete("m1");
     expect(capturedMethod).toBe("DELETE");
   });
@@ -114,7 +114,7 @@ describe("Mem9Client.search", () => {
         memories: [{ id: "m1", content: "x", tags: [], metadata: {} }],
       }), { status: 200 });
     });
-    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
     const out = await client.search({
       query: "hello",
       tags: ["kind:observation", "project:demo"],
