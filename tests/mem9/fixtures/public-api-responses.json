@@ -1,0 +1,23 @@
+{
+  "auth_header_name": "X-API-Key",
+  "POST_memories_response": { "status": "accepted" },
+  "GET_memories_response": {
+    "memories": [
+      {
+        "id": "e08338ea-2274-4109-90fc-3f4c49e3072f",
+        "content": "sample memory content",
+        "memory_type": "insight",
+        "tags": ["kind:observation", "project:test-project"],
+        "metadata": { "created_at_epoch": 1776811401 },
+        "state": "active",
+        "version": 2,
+        "created_at": "2026-04-21T22:45:54Z",
+        "updated_at": "2026-04-21T22:45:55Z",
+        "relative_age": "just now"
+      }
+    ],
+    "total": 1,
+    "limit": 100,
+    "offset": 0
+  }
+}

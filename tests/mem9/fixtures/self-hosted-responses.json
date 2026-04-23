@@ -1,0 +1,29 @@
+{
+  "auth_header_name": "Authorization",
+  "auth_header_value_prefix": "Bearer ",
+  "POST_memories_response": {
+    "id": "mem-uuid-1234-5678-9abc-def012345678",
+    "content": "sample memory content",
+    "tags": ["kind:observation", "project:test-project"],
+    "metadata": { "created_at_epoch": 1776811401 },
+    "source": "test-project",
+    "memory_type": "observation",
+    "session_id": "sess-1",
+    "state": "active",
+    "version": 1,
+    "created_at": "2026-04-21T22:45:54Z",
+    "updated_at": "2026-04-21T22:45:54Z"
+  },
+  "GET_memories_response": {
+    "results": [
+      {
+        "id": "mem-uuid-1234-5678-9abc-def012345678",
+        "content": "sample memory content",
+        "tags": ["kind:observation", "project:test-project"],
+        "metadata": { "created_at_epoch": 1776811401 },
+        "memory_type": "observation",
+        "source": "test-project"
+      }
+    ]
+  }
+}
