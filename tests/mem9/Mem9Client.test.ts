@@ -44,6 +44,30 @@ describe("Mem9Client.store", () => {
     expect((captured as Record<string, string>)["X-API-Key"]).toBe("secret");
   });
 
+  test("includes Authorization: Bearer header when backend is self-hosted", async () => {
+    let captured: HeadersInit | undefined;
+    mockFetch(async (_, init) => {
+      captured = init!.headers;
+      return new Response(JSON.stringify({ id: "m" }), { status: 200 });
+    });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: "secret", backend: "self-hosted" });
+    await client.store({ content: "x", tags: [], metadata: {} });
+    expect((captured as Record<string, string>)["Authorization"]).toBe("Bearer secret");
+    expect((captured as Record<string, string>)["X-API-Key"]).toBeUndefined();
+  });
+
+  test("public backend never sends Authorization header", async () => {
+    let captured: HeadersInit | undefined;
+    mockFetch(async (_, init) => {
+      captured = init!.headers;
+      return new Response(JSON.stringify({ status: "accepted" }), { status: 200 });
+    });
+    const client = new Mem9Client({ url: "http://mem9", apiKey: "secret", backend: "public" });
+    await client.store({ content: "x", tags: [], metadata: {} });
+    expect((captured as Record<string, string>)["Authorization"]).toBeUndefined();
+    expect((captured as Record<string, string>)["X-API-Key"]).toBe("secret");
+  });
+
   test("throws Mem9AuthError on 401", async () => {
     mockFetch(async () => new Response("", { status: 401 }));
     const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });

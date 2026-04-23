@@ -30,7 +30,13 @@ export class Mem9Client {
 
   private headers(): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.cfg.apiKey) h["X-API-Key"] = this.cfg.apiKey;
+    if (this.cfg.apiKey) {
+      if (this.cfg.backend === "self-hosted") {
+        h["Authorization"] = `Bearer ${this.cfg.apiKey}`;
+      } else {
+        h["X-API-Key"] = this.cfg.apiKey;
+      }
+    }
     return h;
   }
 
