@@ -30,7 +30,13 @@ export class Mem9Client {
 
   private headers(): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.cfg.apiKey) h["X-API-Key"] = this.cfg.apiKey;
+    if (this.cfg.apiKey) {
+      if (this.cfg.backend === "self-hosted") {
+        h["Authorization"] = `Bearer ${this.cfg.apiKey}`;
+      } else {
+        h["X-API-Key"] = this.cfg.apiKey;
+      }
+    }
     return h;
   }
 
@@ -60,8 +66,10 @@ export class Mem9Client {
       method: "POST",
       body: JSON.stringify(input),
     });
-    const json = (await this.handle(res, "POST /memories")) as { id: string };
-    return json.id;
+    const json = (await this.handle(res, "POST /memories")) as
+      | { id: string }
+      | { status: string };
+    return "id" in json && typeof json.id === "string" ? json.id : "";
   }
 
   async get(id: string): Promise<Mem9Memory> {
