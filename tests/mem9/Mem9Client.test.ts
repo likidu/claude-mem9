@@ -68,6 +68,24 @@ describe("Mem9Client.store", () => {
     expect((captured as Record<string, string>)["X-API-Key"]).toBe("secret");
   });
 
+  test("store() returns server id when self-hosted POST response has {id}", async () => {
+    mockFetch(async () =>
+      new Response(JSON.stringify({ id: "mem-server-id-123" }), { status: 200 })
+    );
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "self-hosted" });
+    const id = await client.store({ content: "x", tags: [], metadata: {} });
+    expect(id).toBe("mem-server-id-123");
+  });
+
+  test("store() returns empty string when public POST response is {status: accepted}", async () => {
+    mockFetch(async () =>
+      new Response(JSON.stringify({ status: "accepted" }), { status: 200 })
+    );
+    const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });
+    const id = await client.store({ content: "x", tags: [], metadata: {} });
+    expect(id).toBe("");
+  });
+
   test("throws Mem9AuthError on 401", async () => {
     mockFetch(async () => new Response("", { status: 401 }));
     const client = new Mem9Client({ url: "http://mem9", apiKey: undefined, backend: "public" });

@@ -66,8 +66,10 @@ export class Mem9Client {
       method: "POST",
       body: JSON.stringify(input),
     });
-    const json = (await this.handle(res, "POST /memories")) as { id: string };
-    return json.id;
+    const json = (await this.handle(res, "POST /memories")) as
+      | { id: string }
+      | { status: string };
+    return "id" in json && typeof json.id === "string" ? json.id : "";
   }
 
   async get(id: string): Promise<Mem9Memory> {
