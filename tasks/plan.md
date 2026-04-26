@@ -517,3 +517,11 @@ Then Phase 2b (write/read path completeness) branches off the updated `mem9`.
 - **Do not** touch the migration CLI — it goes through `Mem9Manager` and stays agnostic.
 - **Do not** attempt to detect the backend from the URL (heuristic). Use only the explicit `MEM9_BACKEND` env var.
 - **If the test count math in Final Verification is off by one** because existing test counts shifted: trust the Task-by-Task "Expected" numbers — those are authoritative. The verification total is informational.
+
+## Known pre-existing claude-mem base issues (not Phase 2 scope)
+
+Discovered during Phase 2a live verification on the VM. These block live observation flow but are NOT regressions from Phase 1 or 2a — they exist in the base plugin upstream of our mem9 work. Park for Phase 3 or upstream contribution.
+
+1. **SDK_SPAWN extractor flakiness.** Background `claude` subprocesses spawned by the worker to extract observation content from PostToolUse events get SIGTERM'd within 1-2 seconds of starting. Result: most sessions report `Drained N orphaned pending messages on session completion` and `obsCount=0`. Reproducible across all of Phase 1, Phase 2a testing on the public api.mem9.ai backend. Not caused by mem9 code — the extractor pool sits in `src/services/worker/SDKAgent.ts` and runs entirely upstream of `Mem9Store`.
+
+2. **Build wipes `plugin/scripts/bun-runner.js`.** `npm run build` clears `plugin/scripts/` before writing built `.cjs` files, but `bun-runner.js` is a checked-in static source file in that same directory. Result: every fresh build deletes it, breaking the SessionStart and Stop hooks until restored. Workaround: `git checkout HEAD -- plugin/scripts/bun-runner.js` after each build, OR cherry-pick the file into the cache after sync. Real fix: `scripts/build-hooks.js` should preserve static files OR the static file should live elsewhere.
